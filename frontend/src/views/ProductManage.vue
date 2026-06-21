@@ -267,7 +267,7 @@
 import { ref, reactive, computed } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, ShopOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons-vue'
-import { getProducts, createProduct, updateProduct, deleteProduct, uploadImages, exportProducts, importProducts } from '../api/product'
+import { getProducts, createProduct, updateProduct, deleteProduct, uploadImages, deleteImage, exportProducts, importProducts } from '../api/product'
 import dayjs from 'dayjs'
 import JSZip from 'jszip'
 
@@ -310,6 +310,7 @@ const folderInputRef = ref(null)
 const importInputRef = ref(null)
 const exporting = ref(false)
 const importing = ref(false)
+const originalImages = ref([])
 
 const formData = reactive({
   title: '',
@@ -392,6 +393,7 @@ function showEditModal(record) {
     description: record.description,
     notes: record.notes,
   })
+  originalImages.value = (record.images || []).map((img) => img.id)
   fileList.value = (record.images || []).map((img) => ({
     uid: `image-${img.id}`,
     name: img.image_url.split('/').pop(),
@@ -417,6 +419,7 @@ function resetForm() {
     notes: '',
   })
   fileList.value = []
+  originalImages.value = []
   formRef.value?.resetFields()
 }
 
@@ -554,6 +557,17 @@ async function handleSubmit() {
       const res = await createProduct(payload)
       productId = res.data.id
       message.success('创建成功')
+    }
+
+    // 删除被移除的已有图片
+    if (isEdit.value) {
+      const keptIds = fileList.value
+        .filter((f) => f.uid.toString().startsWith('image-'))
+        .map((f) => Number(f.uid.toString().replace('image-', '')))
+      const removedIds = originalImages.value.filter((id) => !keptIds.includes(id))
+      for (const imageId of removedIds) {
+        await deleteImage(productId, imageId)
+      }
     }
 
     // 上传新图片（排除已存在的图片）
