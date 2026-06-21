@@ -35,3 +35,16 @@ export function uploadImages(productId, files) {
 export function deleteImage(productId, imageId) {
   return api.delete(`/products/${productId}/images/${imageId}`)
 }
+
+export function exportProducts() {
+  return api.get('/products/export', { responseType: 'blob', timeout: 0 })
+}
+
+export function importProducts(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return api.post('/products/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 0,
+  })
+}

@@ -2,10 +2,27 @@
   <div class="product-manage">
     <div class="page-header">
       <h2>商品管理</h2>
-      <a-button type="primary" @click="showCreateModal">
-        <template #icon><PlusOutlined /></template>
-        新建素材
-      </a-button>
+      <a-space>
+        <a-button :loading="exporting" @click="handleExport">
+          <template #icon><DownloadOutlined /></template>
+          一键导出
+        </a-button>
+        <a-button :loading="importing" @click="triggerImport">
+          <template #icon><UploadOutlined /></template>
+          一键导入
+        </a-button>
+        <a-button type="primary" @click="showCreateModal">
+          <template #icon><PlusOutlined /></template>
+          新建素材
+        </a-button>
+      </a-space>
+      <input
+        ref="importInputRef"
+        type="file"
+        accept=".zip"
+        style="display: none"
+        @change="handleImportSelect"
+      />
     </div>
 
     <!-- 搜索筛选 -->
@@ -249,8 +266,8 @@
 <script setup>
 import { ref, reactive, computed } from 'vue'
 import { message } from 'ant-design-vue'
-import { PlusOutlined, ShopOutlined } from '@ant-design/icons-vue'
-import { getProducts, createProduct, updateProduct, deleteProduct, uploadImages } from '../api/product'
+import { PlusOutlined, ShopOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons-vue'
+import { getProducts, createProduct, updateProduct, deleteProduct, uploadImages, deleteImage, exportProducts, importProducts } from '../api/product'
 import dayjs from 'dayjs'
 import JSZip from 'jszip'
 
@@ -290,6 +307,10 @@ const formRef = ref(null)
 const fileList = ref([])
 const imageInputRef = ref(null)
 const folderInputRef = ref(null)
+const importInputRef = ref(null)
+const exporting = ref(false)
+const importing = ref(false)
+const originalImages = ref([])
 
 const formData = reactive({
   title: '',
@@ -372,6 +393,7 @@ function showEditModal(record) {
     description: record.description,
     notes: record.notes,
   })
+  originalImages.value = (record.images || []).map((img) => img.id)
   fileList.value = (record.images || []).map((img) => ({
     uid: `image-${img.id}`,
     name: img.image_url.split('/').pop(),
@@ -397,6 +419,7 @@ function resetForm() {
     notes: '',
   })
   fileList.value = []
+  originalImages.value = []
   formRef.value?.resetFields()
 }
 
@@ -536,6 +559,17 @@ async function handleSubmit() {
       message.success('创建成功')
     }
 
+    // 删除被移除的已有图片
+    if (isEdit.value) {
+      const keptIds = fileList.value
+        .filter((f) => f.uid.toString().startsWith('image-'))
+        .map((f) => Number(f.uid.toString().replace('image-', '')))
+      const removedIds = originalImages.value.filter((id) => !keptIds.includes(id))
+      for (const imageId of removedIds) {
+        await deleteImage(productId, imageId)
+      }
+    }
+
     // 上传新图片（排除已存在的图片）
     const newFiles = fileList.value
       .filter((f) => !f.uid.toString().startsWith('image-'))
@@ -550,6 +584,50 @@ async function handleSubmit() {
     message.error(isEdit.value ? '修改失败' : '创建失败')
   } finally {
     submitting.value = false
+  }
+}
+
+async function handleExport() {
+  exporting.value = true
+  try {
+    const res = await exportProducts()
+    const blob = new Blob([res.data], { type: 'application/zip' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `商品素材_${dayjs().format('YYYYMMDD_HHmmss')}.zip`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    message.success('导出成功')
+  } catch (err) {
+    message.error('导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
+
+function triggerImport() {
+  importInputRef.value?.click()
+}
+
+async function handleImportSelect(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+
+  importing.value = true
+  try {
+    const res = await importProducts(file)
+    message.success(res.data.message || '导入成功')
+    pagination.current = 1
+    fetchProducts()
+  } catch (err) {
+    const detail = err.response?.data?.detail
+    message.error(detail || '导入失败')
+  } finally {
+    importing.value = false
   }
 }
 
